@@ -1,0 +1,14 @@
+# Compiled files
+bin/
+*.class
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+
+# Mac files
+.DS_Store
+
+# Logs
+*.log
