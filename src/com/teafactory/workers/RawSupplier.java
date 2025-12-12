@@ -3,56 +3,47 @@ package com.teafactory.workers;
 import com.teafactory.buffer.TeaBuffer;
 import com.teafactory.model.TeaBatch;
 import com.teafactory.model.TeaType;
-
 import java.util.concurrent.Phaser;
 import java.util.function.Consumer;
 
 /**
- * Поставщик сырья — работает в фазе 0 (SUPPLY).
- * Создаёт RAW партии и помещает их в rawBuffer.
+ * Поставщик сырья - работает в фазе 0 (SUPPLY)
  */
 public class RawSupplier extends AbstractWorker {
-
     private final TeaBuffer rawBuffer;
 
     public RawSupplier(TeaBuffer rawBuffer, Phaser phaser, Consumer<String> logger) {
-        super(phaser, logger);
+        super("ПОСТАВЩИК", 0, phaser, logger);
         this.rawBuffer = rawBuffer;
     }
 
     @Override
-    protected void doPhaseWork(int phase) throws InterruptedException {
+    protected void performWork() throws InterruptedException {
+        log("📦 Подготовка новой партии сырья...");
 
-        // Фаза 0 (SUPPLY)
-        if (phase % 4 != 0) {
-            return;
-        }
-
-        log("Вошёл в фазу SUPPLY. rawBuffer="
-                + rawBuffer.size() + "/" + rawBuffer.getCapacity());
-
-        // Создаём новую партию сырья
+        // Создаём партию
         TeaBatch batch = new TeaBatch(TeaType.random());
         batch.setStage("RAW");
 
-        log("Создал сырьё: " + batch);
+        log(String.format("✨ Создана партия: %s", batch));
 
-        // Пытаемся положить партию
+        // Проверяем место в буфере
+        int currentSize = rawBuffer.size();
+        int capacity = rawBuffer.getCapacity();
+
+        if (currentSize >= capacity) {
+            log(String.format("⏳ Буфер сырья полон [%d/%d], ожидание...", currentSize, capacity));
+        }
+
+        // Имитация времени подготовки
+        Thread.sleep(randomDelay());
+
+        // Добавляем в буфер (может заблокироваться)
         rawBuffer.put(batch);
 
-        log("Партия добавлена: " + batch
-                + " | rawBuffer=" + rawBuffer.size()
-                + "/" + rawBuffer.getCapacity());
-
-        Thread.sleep(randomDelay());
+        int newSize = rawBuffer.size();
+        log(String.format("✅ Партия %s добавлена в буфер [%d/%d]", batch, newSize, capacity));
     }
 
-    private long randomDelay() {
-        return 300 + (long)(Math.random() * 600); // 300–900 ms
-    }
-
-    @Override
-    protected void log(String msg) {
-        logger.accept("[SUPPLIER] " + msg);
-    }
+    // Метод randomDelay() наследуется от AbstractWorker
 }
