@@ -2,170 +2,198 @@ package com.teafactory.core;
 
 import com.teafactory.buffer.TeaBuffer;
 import com.teafactory.workers.*;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Phaser;
 import java.util.function.Consumer;
 
 /**
- * Главный координатор фабрики.
- * Создаёт буферы, потоки и управляет Phaser.
+ * Центральный координатор фабрики.
+ *
+ * ✔ Создаёт и управляет потоками
+ * ✔ Управляет фазами через Phaser
+ * ✔ Логирует этапы
+ * ✔ Предоставляет данные для GUI
  */
 public class TeaFactory {
-    // Буферы
+
+    // Буферы производства
     private final TeaBuffer rawBuffer;
     private final TeaBuffer midBuffer;
     private final TeaBuffer readyBuffer;
-    
-    // Phaser для синхронизации фаз
+
+    // Фазовый синхронизатор
     private final Phaser phaser;
-    
-    // Рабочие потоки
-    private final List<Thread> threads;
-    private final List<Runnable> workers;
-    
-    // Логгер для передачи в GUI
+
+    // Все рабочие (Runnable)
+    private List<Runnable> workers = new ArrayList<>();
+
+    // Потоки
+    private List<Thread> threads = new ArrayList<>();
+
+    // Логгер → передаётся в GUI
     private final Consumer<String> logger;
-    
+
+    // Флаг состояния фабрики
+    private volatile boolean isRunning = false;
+
     public TeaFactory(Consumer<String> logger) {
         this.logger = logger;
-        
-        // Создаём буферы с разными ёмкостями
-        this.rawBuffer = new TeaBuffer(5, "RawBuffer");
-        this.midBuffer = new TeaBuffer(3, "MidBuffer");
-        this.readyBuffer = new TeaBuffer(4, "ReadyBuffer");
-        
-        // Создаём Phaser без участников (они зарегистрируются сами)
-        this.phaser = new Phaser(0) {
+
+        // Создаём буферы
+        rawBuffer = new TeaBuffer(5, "RAW");
+        midBuffer = new TeaBuffer(3, "MID");
+        readyBuffer = new TeaBuffer(4, "READY");
+
+        // Phaser: 0 parties — рабочие зарегистрируются сами
+        phaser = new Phaser(0) {
             @Override
-            protected boolean onAdvance(int phase, int registeredParties) 
-{
-                // Логируем переход между фазами
-                String phaseName = getPhaseName(phase);
-                logger.accept("═══ Фаза " + phase + " (" + phaseName + 
-") завершена ═══");
-                
-                // false = продолжаем работу (не завершаем Phaser)
-                return false;
+            protected boolean onAdvance(int phase, int registeredParties) {
+
+                logger.accept(
+                        String.format("────────── ФАЗА %d (%s) завершена ──────────",
+                                phase, phaseName(phase))
+                );
+
+                return false; // продолжать работу
             }
         };
-        
-        this.threads = new ArrayList<>();
-        this.workers = new ArrayList<>();
-        
+
         log("Фабрика инициализирована");
     }
-    
-    /**
-     * Запуск всех рабочих потоков
-     */
+
+    // ======================================================
+    //                    ЗАПУСК ФАБРИКИ
+    // ======================================================
     public void start() {
+
+        if (isRunning) {
+            log("Фабрика уже работает");
+            return;
+        }
+
         log("Запуск фабрики...");
-        
-        // Создаём рабочих
+
+        threads.clear();
+        workers.clear();
+
+        // +++++++++++++ СОЗДАЁМ РАБОЧИХ +++++++++++++
         RawSupplier supplier = new RawSupplier(rawBuffer, phaser, logger);
-        TeaMaster master = new TeaMaster(rawBuffer, midBuffer, phaser, 
-logger);
-        Packer packer = new Packer(midBuffer, readyBuffer, phaser, 
-logger);
-        
+        TeaMaster master = new TeaMaster(rawBuffer, midBuffer, phaser, logger);
+        Packer packer = new Packer(midBuffer, readyBuffer, phaser, logger);
+
         Buyer buyer1 = new Buyer("Buyer-1", readyBuffer, phaser, logger);
         Buyer buyer2 = new Buyer("Buyer-2", readyBuffer, phaser, logger);
         Buyer buyer3 = new Buyer("Buyer-3", readyBuffer, phaser, logger);
-        
-        // Сохраняем ссылки на рабочих для последующей остановки
+
         workers.add(supplier);
         workers.add(master);
         workers.add(packer);
         workers.add(buyer1);
         workers.add(buyer2);
         workers.add(buyer3);
-        
-        // Создаём и запускаем потоки
-        Thread t1 = new Thread(supplier);
-        Thread t2 = new Thread(master);
-        Thread t3 = new Thread(packer);
-        Thread t4 = new Thread(buyer1);
-        Thread t5 = new Thread(buyer2);
-        Thread t6 = new Thread(buyer3);
-        
-        threads.add(t1);
-        threads.add(t2);
-        threads.add(t3);
-        threads.add(t4);
-        threads.add(t5);
-        threads.add(t6);
-        
-        // Запускаем все потоки
-        threads.forEach(Thread::start);
-        
-        log("Фабрика запущена! Потоков: " + threads.size());
+
+        // +++++++++++++ СОЗДАЁМ ПОТОКИ +++++++++++++
+        threads.add(new Thread(supplier, "Supplier"));
+        threads.add(new Thread(master,   "Master"));
+        threads.add(new Thread(packer,   "Packer"));
+        threads.add(new Thread(buyer1,   "Buyer-1"));
+        threads.add(new Thread(buyer2,   "Buyer-2"));
+        threads.add(new Thread(buyer3,   "Buyer-3"));
+
+        isRunning = true;
+
+        // +++++++++++++ ЗАПУСК ПОТОКОВ +++++++++++++
+        for (Thread t : threads) {
+            t.start();
+        }
+
+        log("Фабрика запущена! Активных потоков: " + threads.size());
     }
-    
-    /**
-     * Остановка всех потоков
-     */
+
+    // ======================================================
+    //                     ОСТАНОВКА ФАБРИКИ
+    // ======================================================
     public void stop() {
+
+        if (!isRunning) {
+            log("Фабрика уже остановлена");
+            return;
+        }
+
         log("Остановка фабрики...");
-        
-        // Останавливаем рабочих (устанавливаем флаг running = false)
-        workers.forEach(worker -> {
-            if (worker instanceof RawSupplier) ((RawSupplier) 
-worker).stop();
-            else if (worker instanceof TeaMaster) ((TeaMaster) 
-worker).stop();
-            else if (worker instanceof Packer) ((Packer) worker).stop();
-            else if (worker instanceof Buyer) ((Buyer) worker).stop();
-        });
-        
-        // Прерываем потоки
-        threads.forEach(Thread::interrupt);
-        
-        // Ждём завершения всех потоков
-        for (Thread thread : threads) {
-            try {
-                thread.join(2000); // Ждём максимум 2 секунды
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+
+        isRunning = false;
+
+        // Останавливаем всех рабочих
+        for (Runnable worker : workers) {
+            if (worker instanceof AbstractWorker w) {
+                w.stop();
             }
         }
-        
+
+        // Прерываем потоки
+        for (Thread t : threads) {
+            t.interrupt();
+        }
+
+        // Ждём завершения
+        for (Thread t : threads) {
+            try {
+                t.join(2000);
+            } catch (InterruptedException ignored) {}
+        }
+
+        workers.clear();
+        threads.clear();
+
         log("Фабрика остановлена");
     }
-    
-    /**
-     * Получить текущую фазу
-     */
-    public int getCurrentPhase() {
+
+    // ======================================================
+    //                   ФАЗОВАЯ ЛОГИКА
+    // ======================================================
+    public int getPhase() {
         return phaser.getPhase();
     }
-    
-    /**
-     * Получить название текущей фазы
-     */
+
+    public String getPhaseName() {
+        return phaseName(phaser.getPhase());
+    }
+
+    // === Методы, которые нужны GUI ===
+    public int getCurrentPhase() {
+        return getPhase();
+    }
+
     public String getCurrentPhaseName() {
-        return getPhaseName(phaser.getPhase());
+        return getPhaseName();
     }
-    
-    /**
-     * Получить название фазы по номеру
-     */
-    private String getPhaseName(int phase) {
-        switch (phase % 4) {
-            case 0: return "SUPPLY";
-            case 1: return "PROCESS";
-            case 2: return "PACK";
-            case 3: return "CONSUME";
-            default: return "UNKNOWN";
-        }
+
+    private String phaseName(int phase) {
+        return switch (phase % 4) {
+            case 0 -> "SUPPLY";
+            case 1 -> "PROCESS";
+            case 2 -> "PACK";
+            case 3 -> "CONSUME";
+            default -> "UNKNOWN";
+        };
     }
-    
-    // Геттеры для буферов (для отображения в GUI)
+
+    // ======================================================
+    //                   ГЕТТЕРЫ ДЛЯ GUI
+    // ======================================================
     public TeaBuffer getRawBuffer() { return rawBuffer; }
     public TeaBuffer getMidBuffer() { return midBuffer; }
     public TeaBuffer getReadyBuffer() { return readyBuffer; }
-    
-    private void log(String message) {
-        logger.accept("[ФАБРИКА] " + message);
+
+    public boolean isRunning() { return isRunning; }
+
+    // ======================================================
+    //                          ЛОГ
+    // ======================================================
+    private void log(String msg) {
+        logger.accept("[ФАБРИКА] " + msg);
     }
 }

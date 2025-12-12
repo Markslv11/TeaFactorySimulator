@@ -1,82 +1,88 @@
 package com.teafactory.buffer;
 
 import com.teafactory.model.TeaBatch;
+
 import java.util.ArrayDeque;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Потокобезопасный буфер с ограниченной ёмкостью.
- * Использует ReentrantLock и Condition для синхронизации.
- * 
- * ВАЖНО: Не использует synchronized, только явные Lock и Condition!
+ * Использует ReentrantLock и Condition для полноценной реализации
+ * механизма "producer-consumer" без synchronized.
+ * ✔ Поддерживает блокирующие операции put() и take()
+ * ✔ Корректно работает с множеством производителей и потребителей
+ *  Предотвращает гонки данных и ложные пробуждения
+ * ✔ Fair-lock гарантирует честный порядок (важно при 3 Buyers!)
  */
 public class TeaBuffer {
+
     private final ArrayDeque<TeaBatch> deque;
     private final ReentrantLock lock;
-    private final Condition notEmpty;  // Сигнализирует, что буфер не 
-    private final Condition notFull;   // Сигнализирует, что буфер не
+    private final Condition notEmpty;
+    private final Condition notFull;
 
     private final int capacity;
-    private final String name;
-    
+    private final String name; // имя буфера для логов (если нужно)
+
     public TeaBuffer(int capacity, String name) {
         this.capacity = capacity;
         this.name = name;
         this.deque = new ArrayDeque<>(capacity);
-        this.lock = new ReentrantLock(true); // fair lock для честной
+
+        // fair = true — важен при множестве конкурентов
+        this.lock = new ReentrantLock(true);
+
         this.notEmpty = lock.newCondition();
         this.notFull = lock.newCondition();
     }
-    
+
     /**
-     * Положить элемент в буфер.
-     * Блокирует поток, если буфер полон, до освобождения места.
+     * Блокирующее добавление элемента.
+     * Если буфер полон → поток ждёт.
      */
     public void put(TeaBatch batch) throws InterruptedException {
-        lock.lock(); // Захватываем эксклюзивный доступ
-        try {
-            // Ждём, пока не освободится место (если буфер полон)
-            while (deque.size() >= capacity) {
-                notFull.await(); // Освобождаем lock и ждём сигнала
-            }
-            
-            deque.addLast(batch);
-            
-            // Сигнализируем ждущим потокам, что буфер больше не пустой
-            notEmpty.signal();
-            
-        } finally {
-            lock.unlock(); // ОБЯЗАТЕЛЬНО освобождаем lock в finally
-        }
-    }
-    
-    /**
-     * Взять элемент из буфера.
-     * Блокирует поток, если буфер пуст, до появления элемента.
-     */
-    public TeaBatch take() throws InterruptedException {
         lock.lock();
         try {
-            // Ждём, пока не появится элемент (если буфер пуст)
-            while (deque.isEmpty()) {
-                notEmpty.await();
+            while (deque.size() >= capacity) {
+                notFull.await();
             }
-            
-            TeaBatch batch = deque.removeFirst();
-            
-            // Сигнализируем ждущим потокам, что буфер больше не полный
-            notFull.signal();
-            
-            return batch;
-            
+
+            deque.addLast(batch);
+
+            // signalAll — лучший выбор при нескольких Consumer
+            notEmpty.signalAll();
+
         } finally {
             lock.unlock();
         }
     }
-    
+
     /**
-     * Получить текущий размер буфера (потокобезопасно)
+     * Блокирующее извлечение элемента.
+     * Если буфер пуст → поток ждёт.
+     */
+    public TeaBatch take() throws InterruptedException {
+        lock.lock();
+        try {
+            while (deque.isEmpty()) {
+                notEmpty.await();
+            }
+
+            TeaBatch batch = deque.removeFirst();
+
+            // Будим всех, кто ждёт место
+            notFull.signalAll();
+
+            return batch;
+
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Потокобезопасный размер буфера.
      */
     public int size() {
         lock.lock();
@@ -86,18 +92,30 @@ public class TeaBuffer {
             lock.unlock();
         }
     }
-    
+
     /**
-     * Получить вместимость буфера
+     * Если в GUI нужна быстрая проверка (не блокирующая):
+     */
+    public int peekSizeUnsafe() {
+        return deque.size();
+    }
+
+    /**
+     * Вместимость буфера.
      */
     public int getCapacity() {
         return capacity;
     }
-    
+
     /**
-     * Получить имя буфера
+     * Имя буфера (RAW / MID / READY)
      */
     public String getName() {
         return name;
+    }
+
+    @Override
+    public String toString() {
+        return "[" + name + ": " + deque.size() + "/" + capacity + "]";
     }
 }
