@@ -7,39 +7,38 @@ import java.util.function.Consumer;
 
 /**
  * Покупатель - работает в фазе 3 (CONSUME)
- * Таких потоков 3 штуки, они конкурируют за готовый продукт
+ * Несколько покупателей конкурируют за товар
  */
 public class Buyer extends AbstractWorker {
     private final TeaBuffer readyBuffer;
     private int purchaseCount = 0;
 
-    public Buyer(String buyerName, TeaBuffer readyBuffer, Phaser phaser, Consumer<String> logger) {
-        super(buyerName, 3, phaser, logger);
+    public Buyer(String workerName, TeaBuffer readyBuffer, Phaser phaser, Consumer<String> logger) {
+        super(workerName, 3, phaser, logger);
         this.readyBuffer = readyBuffer;
     }
 
     @Override
-    protected void performWork() throws InterruptedException {
-        // Проверяем наличие готового продукта
-        int readySize = readyBuffer.size();
-        if (readySize == 0) {
-            log("⏳ Буфер готовой продукции пуст, ожидание...");
+    protected boolean performWork() throws InterruptedException {
+        // Проверяем, есть ли товар
+        if (readyBuffer.size() == 0) {
+            log("ℹ️ Буфер готовой продукции пуст, завершаем фазу");
+            return false;
         }
 
-        // Берём готовый продукт (конкуренция с другими покупателями!)
+        // Пробуем купить
         TeaBatch batch = readyBuffer.take();
-        purchaseCount++;
 
-        log(String.format("🛒 Приобретена партия: %s [readyBuffer: %d/%d]",
-                batch, readyBuffer.size(), readyBuffer.getCapacity()));
+        log(String.format("🛒 Куплена партия: %s", batch));
 
-        log(String.format("☕ Наслаждаюсь чаем: %s", batch));
-
-        // Имитация времени потребления
+        // Имитация времени покупки
         Thread.sleep(randomDelay());
 
-        log(String.format("✅ Партия %s успешно потреблена! (Всего куплено: %d)",
-                batch, purchaseCount));
+        purchaseCount++;
+        log(String.format("💰 Покупка завершена: %s (Всего покупок: %d)", batch, purchaseCount));
+
+        // Продолжаем покупать, если есть ещё товар
+        return readyBuffer.size() > 0;
     }
 
     public int getPurchaseCount() {

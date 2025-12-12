@@ -6,7 +6,7 @@ import java.util.concurrent.Phaser;
 import java.util.function.Consumer;
 
 /**
- * Мастер обработки - работает в фазе 1 (PROCESS)
+ * Мастер чайного производства - работает в фазе 1 (PROCESS)
  */
 public class TeaMaster extends AbstractWorker {
     private final TeaBuffer rawBuffer;
@@ -19,44 +19,36 @@ public class TeaMaster extends AbstractWorker {
     }
 
     @Override
-    protected void performWork() throws InterruptedException {
-        // Проверяем наличие сырья
-        int rawSize = rawBuffer.size();
-        if (rawSize == 0) {
-            log("⏳ Буфер сырья пуст, ожидание...");
+    protected boolean performWork() throws InterruptedException {
+        // Проверяем, есть ли что обрабатывать
+        if (rawBuffer.size() == 0) {
+            log("ℹ️ Буфер сырья пуст, завершаем фазу");
+            return false;
         }
 
-        // Берём сырьё (может заблокироваться)
+        // Проверяем, есть ли место куда положить
+        if (midBuffer.size() >= midBuffer.getCapacity()) {
+            log("ℹ️ Промежуточный буфер полон, завершаем фазу");
+            return false;
+        }
+
+        // Берём из буфера сырья
         TeaBatch batch = rawBuffer.take();
-        log(String.format("📥 Получено сырьё: %s [rawBuffer: %d/%d]",
-                batch, rawBuffer.size(), rawBuffer.getCapacity()));
+        log(String.format("🔧 Взята партия на обработку: %s", batch));
 
-        log(String.format("🔧 Начинаю обработку: %s", batch));
-
-        // Имитация обработки
+        // Обработка
         Thread.sleep(randomDelay());
-
-        // Изменяем статус
         batch.setStage("PROCESSED");
 
-        log(String.format("✨ Обработка завершена: %s", batch));
-
-        // Проверяем место в промежуточном буфере
-        int midSize = midBuffer.size();
-        int midCapacity = midBuffer.getCapacity();
-
-        if (midSize >= midCapacity) {
-            log(String.format("⏳ Промежуточный буфер полон [%d/%d], ожидание...",
-                    midSize, midCapacity));
-        }
+        log(String.format("⚙️ Обработка завершена: %s", batch));
 
         // Кладём в промежуточный буфер
         midBuffer.put(batch);
 
-        int newMidSize = midBuffer.size();
-        log(String.format("✅ Партия %s → midBuffer [%d/%d]",
-                batch, newMidSize, midCapacity));
-    }
+        int newSize = midBuffer.size();
+        log(String.format("✅ Партия %s помещена в промежуточный буфер [%d/%d]", batch, newSize, midBuffer.getCapacity()));
 
-    // Метод randomDelay() наследуется от AbstractWorker
+        // Продолжаем, если есть ещё сырьё И есть место в выходном буфере
+        return rawBuffer.size() > 0 && midBuffer.size() < midBuffer.getCapacity();
+    }
 }

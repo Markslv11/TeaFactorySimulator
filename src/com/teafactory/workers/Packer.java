@@ -19,42 +19,36 @@ public class Packer extends AbstractWorker {
     }
 
     @Override
-    protected void performWork() throws InterruptedException {
-        // Проверяем наличие обработанного чая
-        int midSize = midBuffer.size();
-        if (midSize == 0) {
-            log("⏳ Промежуточный буфер пуст, ожидание...");
+    protected boolean performWork() throws InterruptedException {
+        // Проверяем, есть ли что упаковывать
+        if (midBuffer.size() == 0) {
+            log("ℹ️ Промежуточный буфер пуст, завершаем фазу");
+            return false;
+        }
+
+        // Проверяем, есть ли место куда положить
+        if (readyBuffer.size() >= readyBuffer.getCapacity()) {
+            log("ℹ️ Буфер готовой продукции полон, завершаем фазу");
+            return false;
         }
 
         // Берём из промежуточного буфера
         TeaBatch batch = midBuffer.take();
-        log(String.format("📥 Получена партия для упаковки: %s [midBuffer: %d/%d]",
-                batch, midBuffer.size(), midBuffer.getCapacity()));
+        log(String.format("📦 Взята партия на упаковку: %s", batch));
 
-        log(String.format("📦 Начинаю упаковку: %s", batch));
-
-        // Имитация упаковки
+        // Упаковка
         Thread.sleep(randomDelay());
-
-        // Изменяем статус
         batch.setStage("PACKED");
 
-        log(String.format("✨ Упаковка завершена: %s", batch));
-
-        // Проверяем место в буфере готовой продукции
-        int readySize = readyBuffer.size();
-        int readyCapacity = readyBuffer.getCapacity();
-
-        if (readySize >= readyCapacity) {
-            log(String.format("⏳ Буфер готовой продукции полон [%d/%d], ожидание...",
-                    readySize, readyCapacity));
-        }
+        log(String.format("🎁 Упаковка завершена: %s", batch));
 
         // Кладём в буфер готовой продукции
         readyBuffer.put(batch);
 
-        int newReadySize = readyBuffer.size();
-        log(String.format("✅ Партия %s → readyBuffer [%d/%d]",
-                batch, newReadySize, readyCapacity));
+        int newSize = readyBuffer.size();
+        log(String.format("✅ Партия %s готова к продаже [%d/%d]", batch, newSize, readyBuffer.getCapacity()));
+
+        // Продолжаем, если есть ещё товар для упаковки И есть место в выходном буфере
+        return midBuffer.size() > 0 && readyBuffer.size() < readyBuffer.getCapacity();
     }
 }

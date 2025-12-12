@@ -25,6 +25,7 @@ public class TeaFactory {
     private long startTime;
     private long totalRuntime;
     private int cyclesCompleted;
+    private volatile boolean isRunning = false;
 
     public TeaFactory(Consumer<String> logger) {
         this.logger = logger;
@@ -43,15 +44,31 @@ public class TeaFactory {
      * Запуск или перезапуск фабрики
      */
     public void start() {
+        if (isRunning) {
+            log("⚠️ Фабрика уже работает!");
+            return;
+        }
+
         log("🚀 Запуск фабрики...");
+
+        // Очищаем буферы перед новым запуском
+        rawBuffer.clear();
+        midBuffer.clear();
+        readyBuffer.clear();
 
         // Создаём новый Phaser
         phaser = new Phaser(0) {
             @Override
             protected boolean onAdvance(int phase, int registeredParties) {
-                cyclesCompleted++;
                 String phaseName = getPhaseName(phase);
                 logger.accept(String.format("━━━━━━━━ ФАЗА %d (%s) ЗАВЕРШЕНА ━━━━━━━━", phase, phaseName));
+
+                // Считаем полный цикл только после завершения фазы 3 (CONSUME)
+                if (phase % 4 == 3) {
+                    cyclesCompleted++;
+                    logger.accept(String.format("🔄 Завершён цикл #%d", cyclesCompleted));
+                }
+
                 return false; // продолжаем работу
             }
         };
@@ -84,6 +101,7 @@ public class TeaFactory {
 
         // Запускаем потоки
         startTime = System.currentTimeMillis();
+        isRunning = true;
         threads.forEach(Thread::start);
 
         log(String.format("✅ Фабрика запущена! Активных потоков: %d", threads.size()));
@@ -93,7 +111,14 @@ public class TeaFactory {
      * Остановка фабрики
      */
     public void stop() {
+        if (!isRunning) {
+            log("⚠️ Фабрика уже остановлена!");
+            return;
+        }
+
         log("🛑 Остановка фабрики...");
+
+        isRunning = false;
 
         // Останавливаем всех workers
         workers.forEach(AbstractWorker::stop);
@@ -149,6 +174,10 @@ public class TeaFactory {
      * Текущая статистика для отображения в GUI
      */
     public String getCurrentStatistics() {
+        if (!isRunning) {
+            return "Фабрика остановлена";
+        }
+
         int totalPurchases = workers.stream()
                 .filter(w -> w instanceof Buyer)
                 .mapToInt(w -> ((Buyer) w).getPurchaseCount())
@@ -177,6 +206,10 @@ public class TeaFactory {
             case 3: return "CONSUME";
             default: return "UNKNOWN";
         }
+    }
+
+    public boolean isRunning() {
+        return isRunning;
     }
 
     public TeaBuffer getRawBuffer() { return rawBuffer; }

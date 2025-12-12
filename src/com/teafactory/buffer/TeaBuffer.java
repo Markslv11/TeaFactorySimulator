@@ -118,4 +118,7 @@ public class TeaBuffer {
     public String toString() {
         return "[" + name + ": " + deque.size() + "/" + capacity + "]";
     }
+
+    public void clear() {
+    }
 }

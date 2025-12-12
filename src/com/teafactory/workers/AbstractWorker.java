@@ -19,23 +19,35 @@ public abstract class AbstractWorker implements Runnable {
         this.workPhase = workPhase;
         this.phaser = phaser;
         this.logger = logger;
-        phaser.register();
     }
 
     @Override
     public void run() {
         Thread.currentThread().setName(workerName);
+        phaser.register(); // Регистрируемся в фазере
         log("🟢 Поток запущен");
 
         try {
             while (running && !Thread.currentThread().isInterrupted()) {
-                int currentPhase = phaser.getPhase();
+                int currentPhase = phaser.getPhase() % 4;
 
-                // Используем % 4 для циклического повторения фаз
-                if (currentPhase % 4 == workPhase) {
-                    performWork();
+                // Работаем только в своей фазе
+                if (currentPhase == workPhase) {
+                    // Выполняем работу многократно в нашей фазе
+                    boolean canContinue = true;
+                    while (canContinue && running && !Thread.currentThread().isInterrupted()) {
+                        try {
+                            canContinue = performWork();
+                        } catch (InterruptedException e) {
+                            log("⚠️ Работа прервана");
+                            throw e;
+                        }
+                    }
+
+                    log("✅ Работа в фазе завершена");
                 }
 
+                // Сообщаем фазеру, что готовы к переходу
                 phaser.arriveAndAwaitAdvance();
             }
         } catch (InterruptedException e) {
@@ -49,9 +61,11 @@ public abstract class AbstractWorker implements Runnable {
 
     /**
      * Основная работа, которую выполняет worker в своей фазе.
-     * Должна быть реализована в каждом конкретном worker.
+     *
+     * @return true если можно продолжать работу,
+     *         false если нужно завершить фазу (буфер пуст/полон, работа закончена)
      */
-    protected abstract void performWork() throws InterruptedException;
+    protected abstract boolean performWork() throws InterruptedException;
 
     /**
      * Остановка worker

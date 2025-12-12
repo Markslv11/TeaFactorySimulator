@@ -18,7 +18,13 @@ public class RawSupplier extends AbstractWorker {
     }
 
     @Override
-    protected void performWork() throws InterruptedException {
+    protected boolean performWork() throws InterruptedException {
+        // Проверяем, есть ли место в буфере
+        if (rawBuffer.size() >= rawBuffer.getCapacity()) {
+            log("ℹ️ Буфер сырья полон, завершаем фазу");
+            return false; // Буфер полон, завершаем фазу
+        }
+
         log("📦 Подготовка новой партии сырья...");
 
         // Создаём партию
@@ -27,23 +33,16 @@ public class RawSupplier extends AbstractWorker {
 
         log(String.format("✨ Создана партия: %s", batch));
 
-        // Проверяем место в буфере
-        int currentSize = rawBuffer.size();
-        int capacity = rawBuffer.getCapacity();
-
-        if (currentSize >= capacity) {
-            log(String.format("⏳ Буфер сырья полон [%d/%d], ожидание...", currentSize, capacity));
-        }
-
         // Имитация времени подготовки
         Thread.sleep(randomDelay());
 
-        // Добавляем в буфер (может заблокироваться)
+        // Добавляем в буфер
         rawBuffer.put(batch);
 
         int newSize = rawBuffer.size();
-        log(String.format("✅ Партия %s добавлена в буфер [%d/%d]", batch, newSize, capacity));
-    }
+        log(String.format("✅ Партия %s добавлена в буфер [%d/%d]", batch, newSize, rawBuffer.getCapacity()));
 
-    // Метод randomDelay() наследуется от AbstractWorker
+        // Продолжаем работу, если буфер не полон
+        return rawBuffer.size() < rawBuffer.getCapacity();
+    }
 }
